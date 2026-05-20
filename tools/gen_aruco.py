@@ -5,10 +5,10 @@ import numpy as np
 
 # ===== 可改参数 =====
 DICT_NAME = "DICT_4X4_50"   # 常用：4x4_50
-IDS = [1, 2, 3, 4, 5, 6, 7] # 要生成的marker id
+IDS = [1, 2, 3, 4, 5, 6, 7,8,9] # 要生成的marker id
 MARKER_PX = 600             # 图片中marker像素边长
 BORDER_BITS = 1
-MARKER_SIZE_MM = 40.0       # 实际打印后边长（给位姿估计用）
+MARKER_SIZE_MM = 40.0     # 实际打印后边长（给位姿估计用）
 OUT_DIR = Path("data/aruco_markers")
 # ===================
 
@@ -28,7 +28,7 @@ def main():
         marker = cv2.aruco.generateImageMarker(aruco_dict, mid, MARKER_PX, borderBits=BORDER_BITS)
 
         # 加白边，方便打印和检测
-        pad = int(MARKER_PX * 0.20)
+        pad = int(MARKER_PX * 0.125)
         canvas = np.full((MARKER_PX + 2 * pad, MARKER_PX + 2 * pad), 255, dtype=np.uint8)
         canvas[pad:pad + MARKER_PX, pad:pad + MARKER_PX] = marker
 

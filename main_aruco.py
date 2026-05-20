@@ -7,13 +7,21 @@ import numpy as np
 
 from camera_capture import CameraCapture
 from handeye_calibration import load_transform
-from pixel_to_camera import load_intrinsics, load_table_plane, pixel_to_camera_on_tilted_table
+from pixel_to_camera import load_intrinsics
+from xy_plane_calibration import map_pixels_to_robot_xy
 
 
 def cam_to_base(T_base_cam, p_cam):
     R = T_base_cam[:3, :3]
     t = T_base_cam[:3, 3]
     return R @ p_cam.reshape(3,) + t
+
+
+def load_xy_mapping(path="data/xy_plane_homography.npz"):
+    d = np.load(path)
+    H = np.asarray(d["H_uv_to_robot_xy"], dtype=np.float64)
+    z_mm = float(d["mean_robot_z_mm"]) if "mean_robot_z_mm" in d else 0.0
+    return H, z_mm
 
 
 def save_records(records, out_dir="data"):
@@ -55,7 +63,7 @@ def save_initial_positions_and_yaws_py(
         lines.append(f"    [{p[0]}, {p[1]}, {p[2]}],")
     lines.append("]")
     lines.append("")
-    lines.append("initial_yaws = [")
+    lines.append("yaws = [")
     for y in yaws:
         lines.append(f"    {y},")
     lines.append("]")
@@ -68,8 +76,8 @@ def save_initial_positions_and_yaws_py(
 def main():
     camera_ip = "192.168.1.88"
     intr_path = "data/camera_intrinsics.npz"
-    plane_path = "data/table_plane_from_pnp.npz"
     extr_path = "data/T_base_cam.npy"
+    xy_map_path = "data/xy_plane_homography.npz"
 
     # ArUco 实际边长（米），必须量准
     marker_length_m = 0.04  # 40mm
@@ -81,9 +89,9 @@ def main():
         3: 150.0,
     }
 
-    # 读取内参
+    # 读取内参和固定顶面XY映射
     K, dist = load_intrinsics(intr_path)
-    n_plane, d_plane = load_table_plane(plane_path)
+    H_xy, z_base_mm = load_xy_mapping(xy_map_path)
     T_base_cam = load_transform(extr_path)
 
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -113,10 +121,12 @@ def main():
                     rvec = rvecs[i, 0]
                     c = corners[i][0]  # 4x2 角点 (TL,TR,BR,BL)
                     cxy = c.mean(axis=0)
-                    p_cam_mm = pixel_to_camera_on_tilted_table(
-                        float(cxy[0]), float(cxy[1]), K, dist, n_plane, d_plane
-                    )
-                    p_base_mm = cam_to_base(T_base_cam, p_cam_mm)
+                    xy_base_mm = map_pixels_to_robot_xy(
+                        np.array([[float(cxy[0]), float(cxy[1])]], dtype=np.float64),
+                        K,
+                        dist,
+                        H_xy,
+                    )[0]
 
                     # 转换 rvec 到机械臂坐标系
                     R = T_base_cam[:3, :3]
@@ -128,14 +138,14 @@ def main():
 
                     rec = {
                         "id": int(mid),
-                        "center_base_mm": [float(p_base_mm[0]), float(p_base_mm[1]), float(p_base_mm[2])],
+                        "center_base_mm": [float(xy_base_mm[0]), float(xy_base_mm[1]), float(z_base_mm)],
                         "length_mm": float(length_map_mm.get(int(mid), 0.0)),
                         "yaw_rad": yaw_base,  # 现在是机械臂坐标系
                     }
                     records.append(rec)
 
                     cv2.drawFrameAxes(vis, K, dist, rvecs[i], tvecs[i], marker_length_m * 0.6)
-                    txt = f"id={mid} X={p_base_mm[0]:.1f} Y={p_base_mm[1]:.1f} L={rec['length_mm']:.1f}"
+                    txt = f"id={mid} X={xy_base_mm[0]:.1f} Y={xy_base_mm[1]:.1f} L={rec['length_mm']:.1f}"
                     cxy_i = cxy.astype(int)
 
                     cv2.putText(
